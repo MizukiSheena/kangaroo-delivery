@@ -1,4 +1,6 @@
 import { CHAOS_CAST } from './chaos-core.mjs';
+import { specialPhase, specialDialogue } from './chaos-dialogue.mjs';
+import { createCastPainter } from './chaos-cast.mjs';
 
 export function createChaosRenderer(ctx) {
   let reactions = [];
@@ -45,36 +47,10 @@ export function createChaosRenderer(ctx) {
     ctx.restore();
   }
 
-  function actorShape(column, reaction) {
-    if (column === 0) {
-      ellipse(-5, 8, 19, 13, '#aebdb7'); ellipse(-19, 2, 14, 7, '#c9d4cd'); ellipse(10, -3, 12, 13, '#b7c6c1');
-      ctx.fillStyle = '#d7ae48'; ctx.beginPath(); ctx.moveTo(18, -5); ctx.lineTo(31, -1); ctx.lineTo(18, 3); ctx.fill();
-      ellipse(8, -7, 5, 4, '#3e5149'); ellipse(19, -7, 4, 4, '#3e5149'); stroke([[6, -7], [23, -7]], '#31473c', 2);
-      stroke([[-4, 20], [-7, 25]], '#d4ab56', 2); stroke([[6, 20], [9, 24]], '#d4ab56', 2);
-      if (reaction) stroke([[-7, -6], [-3, -18], [5, -14]], '#aebdb7', 6);
-    } else if (column === 1) {
-      ctx.fillStyle = '#d1776e'; ctx.beginPath(); ctx.moveTo(-2, -6); ctx.lineTo(-39, 13); ctx.lineTo(-7, 13); ctx.fill();
-      ellipse(-2, 7, 18, 10, '#83aebe'); ellipse(16, -3, 12, 12, '#ebc697');
-      stroke([[0, 12], [-17, 21]], '#83aebe', 7); stroke([[5, 13], [-3, 26]], '#83aebe', 7);
-      stroke([[7, 6], [22, 12]], '#ebc697', 5); item('banana', 24, 8, 14);
-      ellipse(20, -5, 1.5, 2, '#536254');
-    } else if (column === 2) {
-      ellipse(0, 9, 19, 15, '#96c4a0'); ellipse(16, -5, 13, 14, '#96c4a0');
-      ctx.fillStyle = '#c7ddbe'; ctx.beginPath(); ctx.moveTo(-6, 4); ctx.lineTo(-26, -17); ctx.lineTo(-31, 5); ctx.closePath(); ctx.fill();
-      stroke([[-16, 17], [-30, 17], [-34, 9]], '#96c4a0', 7); stroke([[12, -17], [11, -23]], '#d9c074', 4);
-      ellipse(22, -7, 1.5, 2, '#566653'); ellipse(27, 0, 3, 2, '#789a79');
-      if (reaction) { text('♡', 39, -9, 20, '#d69a98'); text('♡', 48, -19, 12, '#dfb9ac'); }
-    } else {
-      ellipse(-14, 0, 15, 22, '#e8e7d6'); ellipse(-4, 1, 13, 22, '#e3e7db');
-      ctx.fillStyle = '#c0abc8'; ctx.beginPath(); ctx.moveTo(3, -1); ctx.lineTo(-10, 23); ctx.lineTo(23, 23); ctx.closePath(); ctx.fill();
-      ellipse(8, -11, 11, 13, '#edcfb0'); ellipse(6, -21, 11, 5, '#ceba7d');
-      stroke([[16, 2], [29, 6]], '#edcfb0', 5); item(reaction ? 'plunger' : 'wand', 30, 2, 20); ellipse(12, -12, 1.5, 2, '#77745e');
-    }
-  }
-
-  function portrait(column, x, y, size, reaction = false, facing = 1) {
+  const drawActor = createCastPainter(ctx, item);
+  function portrait(column, x, y, size, phase = 'intro', facing = 1, pose = {}) {
     ctx.save(); ctx.translate(x, y); ctx.scale(facing, 1);
-    ctx.scale(size / 85, size / 85); actorShape(column, reaction);
+    ctx.scale(size / 85, size / 85); drawActor(column, { phase, ...pose });
     ctx.restore();
   }
 
@@ -96,10 +72,13 @@ export function createChaosRenderer(ctx) {
       const exitDuration = reactionDuration * .3;
       const exit = clamp((game.elapsed - (special.endAt - exitDuration)) / exitDuration, 0, 1);
       const actorX = entry + (special.x - entry) * (1 - (1 - enter) ** 3) + exit ** 2 * direction * 470;
-      const actorY = 195 + Math.sin(t * 4 + special.column) * 2;
-      const reaction = game.elapsed >= special.impactAt;
-      portrait(special.column, actorX, actorY, 86, reaction, direction);
-      if (exit < .1) bubble(reaction ? special.line : special.intro, actorX, 149, special.danger);
+      const actorY = [196, 197, 202, 200][special.column] + Math.sin(t * 4 + special.column);
+      const phase = specialPhase(special, game.elapsed);
+      const phaseStart = phase === 'intro' ? special.scheduledAt : phase === 'drop' ? special.dropAt : special.impactAt;
+      const phaseEnd = phase === 'intro' ? special.dropAt : phase === 'drop' ? special.impactAt : special.endAt;
+      const progress = clamp((game.elapsed - phaseStart) / (phaseEnd - phaseStart), 0, 1);
+      portrait(special.column, actorX, actorY, 86, phase, direction, { progress, kind: special.kind });
+      if (exit < .1) bubble(specialDialogue(special, game.elapsed), actorX, 149, special.danger);
       const color = special.danger ? '#bf7d6c' : '#bba04b';
       if (!special.resolved) {
         ctx.save(); ctx.strokeStyle = color; ctx.lineWidth = 1.6; ctx.setLineDash(special.danger ? [5, 4] : []);
@@ -180,6 +159,14 @@ export function createChaosRenderer(ctx) {
     }
   }
 
-  return { drawSpecials, drawPreview, drawShield, noteOutcome, drawReaction,
+  function playerPose(t) {
+    const slip = reactions.findLast(reaction => reaction.kind === 'banana' && t >= reaction.startAt && t - reaction.startAt < .7);
+    if (!slip) return { offsetY: 0, rotation: 0, scaleY: 1 };
+    const progress = (t - slip.startAt) / .7;
+    const dip = Math.sin(progress * Math.PI);
+    return { offsetY: dip * 6, rotation: Math.sin(progress * Math.PI * 2) * .085, scaleY: 1 - dip * .1 };
+  }
+
+  return { drawSpecials, drawPreview, drawShield, noteOutcome, drawReaction, playerPose,
     reset() { reactions = []; } };
 }

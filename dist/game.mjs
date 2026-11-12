@@ -1,5 +1,6 @@
 import { WORLD, createGame, startGame, pauseGame, resumeGame, setTarget, advanceGame, clamp, difficultyAt, encounterWindowAt } from './game-core.mjs';
 import { createChaosRenderer } from './chaos-render.mjs';
+import { specialFeedback } from './chaos-dialogue.mjs';
 
 const $ = id => document.getElementById(id);
 const canvas = $('game');
@@ -152,15 +153,8 @@ function handleEvents() {
     if (event.type.startsWith('special-')) {
       if (event.type === 'special-appear') continue;
       chaosRenderer.noteOutcome(event, clock);
-      const messages = {
-        'special-hit': `哎呀，${event.label}！${event.delta || ''}`,
-        'special-dodge': '轻巧躲过，继续接单！',
-        'special-reward': `${event.label} +${event.delta}${event.kind === 'wand' ? ' · 护盾到手' : ''}`,
-        'special-shield': '护盾挡住啦，连击保住！',
-        'special-missed': '宝物溜走啦，下次再接',
-      };
       $('feedback').classList.toggle('miss', event.type === 'special-hit');
-      $('feedback').textContent = messages[event.type];
+      $('feedback').textContent = specialFeedback(event);
       $('feedback').classList.add('show');
       feedbackUntil = clock + 1.2;
       if (event.type === 'special-reward' || event.type === 'special-shield') {
@@ -326,9 +320,10 @@ function drawCharacter(x, footY, t, emotion = 'idle', velocity = 0, facing = 1) 
   ellipse(x + 1, footY + 1, moving ? 34 : 32, 7, '#aab08429');
   const sw = atlas.width / 4;
   const sh = atlas.height / 2;
-  ctx.save(); ctx.translate(x, footY - bounce);
-  ctx.rotate(reducedMotion ? 0 : clamp(velocity / WORLD.speed, -1, 1) * .035);
-  ctx.scale(1 + catchEffect, 1 - catchEffect);
+  const slip = reducedMotion ? { offsetY: 0, rotation: 0, scaleY: 1 } : chaosRenderer.playerPose(t);
+  ctx.save(); ctx.translate(x, footY - bounce + slip.offsetY);
+  ctx.rotate((reducedMotion ? 0 : clamp(velocity / WORLD.speed, -1, 1) * .035) + slip.rotation);
+  ctx.scale(1 + catchEffect, (1 - catchEffect) * slip.scaleY);
   ctx.drawImage(atlas, frame % 4 * sw, Math.floor(frame / 4) * sh, sw, sh, -67, -139, 134, 139);
   ctx.restore();
 }

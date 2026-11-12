@@ -1,8 +1,15 @@
+import { dialogueFor } from './chaos-dialogue.mjs';
+
+function characterWithDialogue(character) {
+  const script = dialogueFor(character.kind);
+  return Object.freeze({ ...character, intro: script.intro, dropLine: script.drop, line: script.reaction });
+}
+
 export const CHAOS_CAST = Object.freeze([
-  Object.freeze({ actor: 'pigeon', column: 0, name: '墨镜飞行员', kind: 'poop', label: '鸟粪', danger: true, value: 10, line: '投递成功。', intro: '这位飞行员没有外卖资质！' }),
-  Object.freeze({ actor: 'super', column: 1, name: '香蕉小超人', kind: 'banana', label: '香蕉皮', danger: true, value: 10, line: '谁扔的？反正不是我。', intro: '注意！他在边飞边吃香蕉' }),
-  Object.freeze({ actor: 'dragon', column: 2, name: '打嗝小龙', kind: 'scale', label: '龙鳞', danger: false, value: 30, line: '嗝……换季，正常。', intro: '换季小礼物，接住加分' }),
-  Object.freeze({ actor: 'fairy', column: 3, name: '迷糊仙女', kind: 'wand', label: '魔法棒', danger: false, value: 40, line: '借你一点好运气！', intro: '金标宝物，还附送一次护盾' }),
+  characterWithDialogue({ actor: 'pigeon', column: 0, name: '呆头蓝鸽', kind: 'poop', label: '鸟粪', danger: true, value: 10 }),
+  characterWithDialogue({ actor: 'super', column: 1, name: '香蕉小超人', kind: 'banana', label: '香蕉皮', danger: true, value: 10 }),
+  characterWithDialogue({ actor: 'dragon', column: 2, name: '喷嚏小龙', kind: 'scale', label: '龙鳞', danger: false, value: 30 }),
+  characterWithDialogue({ actor: 'fairy', column: 3, name: '打卡仙女', kind: 'wand', label: '魔法棒', danger: false, value: 40 }),
 ]);
 
 const clamp = (value, low, high) => Math.max(low, Math.min(high, value));
@@ -37,15 +44,16 @@ export function createChaosSchedule(seed) {
   const specialSchedule = cast.map((character, index) => {
     const scheduledAt = [5.5, 11.3, 17.1, 22.9][index] + (pick() - .5) * .3;
     const rare = pick() < .1 && (character.actor === 'super' || character.actor === 'fairy');
+    const kind = rare ? character.actor === 'super' ? 'underwear' : 'plunger' : character.kind;
+    const script = dialogueFor(kind);
     const special = { ...character, id: `chaos-${index + 1}`, scheduledAt, dropAt: scheduledAt + 1.6,
       impactAt: scheduledAt + 3, endAt: scheduledAt + 5, rare,
       quietFrom: scheduledAt - 1.45, quietUntil: scheduledAt + 3.35, deliverySlotAt: scheduledAt + .85,
-      kind: rare ? character.actor === 'super' ? 'underwear' : 'plunger' : character.kind,
+      kind,
       label: rare ? character.actor === 'super' ? '红内裤' : '马桶搋子' : character.label,
       danger: rare ? false : character.danger,
       value: rare ? character.actor === 'super' ? 50 : 60 : character.value,
-      line: rare ? character.actor === 'super' ? '等等，我的内裤呢？！' : '糟糕，法器拿错了。' : character.line,
-      intro: rare ? '稀有奇遇！金标是宝物，接住加分' : character.intro,
+      line: script.reaction, intro: script.intro, dropLine: script.drop,
     };
     special.tieBreaker = pick();
     return special;
