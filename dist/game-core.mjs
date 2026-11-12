@@ -1,12 +1,12 @@
-export const WORLD = Object.freeze({ width: 390, height: 760, duration: 60, minX: 43, maxX: 347, speed: 340, catchY: 559 });
+export const WORLD = Object.freeze({ width: 390, height: 760, duration: 60, minX: 43, maxX: 347, speed: 340, catchY: 559, flyDuration: 0.6 });
 export const clamp = (value, low, high) => Math.max(low, Math.min(high, value));
 export const moveToward = (from, to, distance) => from + clamp(to - from, -distance, distance);
 
 export function difficultyAt(elapsed) {
-  if (elapsed < 15) return { name: '慢慢来，接稳就好', interval: 4.5, lowerDuration: 3.3, stage: 0 };
-  if (elapsed < 35) return { name: '来单啦，小跑起来', interval: 3.3, lowerDuration: 2.8, stage: 1 };
-  if (elapsed < 50) return { name: '忙得过来，再接一单', interval: 2.5, lowerDuration: 2.45, stage: 2 };
-  return { name: '最后几单，加油加油！', interval: 1.95, lowerDuration: 2.1, stage: 3 };
+  if (elapsed < 15) return { name: '慢慢来，接稳就好', interval: 2.7, lowerDuration: 1.9, stage: 0 };
+  if (elapsed < 35) return { name: '来单啦，小跑起来', interval: 2.05, lowerDuration: 1.45, stage: 1 };
+  if (elapsed < 50) return { name: '忙得过来，再接一单', interval: 1.5, lowerDuration: 1.1, stage: 2 };
+  return { name: '最后几单，加油加油！', interval: 1.1, lowerDuration: 0.85, stage: 3 };
 }
 
 export function catchGrade(distance) {
@@ -43,7 +43,7 @@ export function createDelivery(game) {
   let x = clamp(game.lastDropX + direction * span, 58, 332);
   if (Math.abs(x - game.lastDropX) < 52) x = clamp(game.lastDropX - direction * span, 58, 332);
   const delivery = {
-    id: game.nextId, x, age: 0, lowerDuration: level.lowerDuration, flyDuration: 0.75,
+    id: game.nextId, x, age: 0, lowerDuration: level.lowerDuration, flyDuration: WORLD.flyDuration,
     hoverY: game.nextId % 2 ? 190 : 266, direction: game.nextId % 2 ? 1 : -1,
     resolved: false, outcome: null, resolvedAt: null,
   };
@@ -61,7 +61,7 @@ export function advanceGame(game, dt) {
   next.player.velocity = (next.player.x - previousX) / step;
   if (Math.abs(next.player.velocity) > 1) next.player.facing = Math.sign(next.player.velocity);
   if (next.player.emotionUntil <= next.elapsed) next.player.emotion = 'idle';
-  if (next.elapsed >= next.nextDeliveryAt && next.elapsed < 56.5) {
+  if (next.elapsed >= next.nextDeliveryAt && next.elapsed + WORLD.flyDuration + difficultyAt(next.elapsed).lowerDuration <= WORLD.duration - 0.15) {
     const spawnAt = next.nextDeliveryAt;
     next = createDelivery(next);
     next.deliveries.at(-1).age = -Math.min(step, Math.max(0, spawnAt - game.elapsed));
