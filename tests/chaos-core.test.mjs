@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { CHAOS_CAST, createChaosState, specialDropX, advanceSpecials } from '../dist/chaos-core.mjs';
-import { WORLD, createGame, startGame, pauseGame, resumeGame, setTarget, advanceGame } from '../dist/game-core.mjs';
+import { CHAOS_CAST, createChaosSchedule, createChaosState, specialDropX, advanceSpecials } from '../dist/chaos-core.mjs';
+import { WORLD, createGame, startGame, pauseGame, resumeGame, setTarget, advanceGame, nextDeliverySlot, encounterWindowAt } from '../dist/game-core.mjs';
 
 const close = (actual, expected, message) => assert.ok(Math.abs(actual - expected) < 1e-7, `${message}: ${actual} vs ${expected}`);
 
@@ -38,6 +38,7 @@ function simulate(seed, fps) {
   const orders = new Map();
   const events = [];
   let peakSpecials = 0;
+  let finaleOrders = 0;
   for (let frame = 0; state.mode === 'playing' && frame < WORLD.duration * fps + 10; frame += 1) {
     const pending = state.deliveries.filter(order => !order.resolved).sort((a, b) => a.deadline - b.deadline)[0];
     if (pending) state = setTarget(state, pending.x);
@@ -46,6 +47,17 @@ function simulate(seed, fps) {
     peakSpecials = Math.max(peakSpecials, state.specials.length);
     assert.ok(state.specials.length <= 1, `seed ${seed}/${fps} fps: encounters must not overlap`);
     assert.ok(state.specials.filter(special => !special.resolved).length <= 1);
+    const pendingCount = state.deliveries.filter(order => !order.resolved).length;
+    for (const special of state.specialSchedule) {
+      if (state.elapsed >= special.scheduledAt && state.elapsed <= special.dropAt) {
+        assert.ok(pendingCount <= 1, `seed ${seed}/${fps} fps: introduction and throw must have at most one pending delivery`);
+        assert.ok(state.deliveries.length <= 1, `seed ${seed}/${fps} fps: drones must not crowd the introduction`);
+      }
+      if (state.elapsed + 1e-8 >= special.impactAt - 0.9 && state.elapsed <= special.impactAt) {
+        assert.equal(pendingCount, 0, `seed ${seed}/${fps} fps: the final 0.9s of the falling gag must be clear of pending deliveries`);
+      }
+    }
+    if (state.elapsed > state.specialSchedule.at(-1).quietUntil) finaleOrders = Math.max(finaleOrders, pendingCount);
     if (state.elapsed < 5) {
       assert.equal(state.specials.length, 0);
       assert.equal(state.nextSpecialIndex, 0);
@@ -54,6 +66,7 @@ function simulate(seed, fps) {
       if (!orders.has(order.id)) orders.set(order.id, { id: order.id, x: order.x, spawnedAt: order.spawnedAt, deadline: order.deadline });
     }
   }
+  assert.ok(finaleOrders >= 3 && finaleOrders <= 4, `seed ${seed}/${fps} fps: deliveries must get busy again after the last quiet window`);
   return { state, forecast, orders: [...orders.values()], events, peakSpecials };
 }
 
@@ -78,6 +91,49 @@ test('encounter plans are seeded, varied, and contain every actor exactly once',
   assert.ok(permutations.size > 4, 'replay should vary the cast order');
 });
 
+test('route-independent schedules reserve quiet windows and exactly one showcase delivery', () => {
+  const schedule = createChaosSchedule(42);
+  assert.deepEqual(schedule, createChaosSchedule(42));
+  assert.notDeepEqual(schedule.specialSchedule, createChaosSchedule(43).specialSchedule);
+  const game = createGame(42);
+  assert.deepEqual(game.specialSchedule, schedule.specialSchedule);
+  const plan = createChaosState(42, game.deliveryForecast, schedule).specialPlan;
+  for (let index = 0; index < schedule.specialSchedule.length; index += 1) {
+    const special = schedule.specialSchedule[index];
+    const bound = plan[index];
+    assert.equal(bound.scheduledAt, special.scheduledAt);
+    assert.equal(bound.dropAt, special.dropAt);
+    assert.equal(bound.impactAt, special.impactAt);
+    assert.equal(bound.endAt, special.endAt);
+    close(special.scheduledAt - special.quietFrom, 1.45, 'pre-introduction quiet lead');
+    close(special.quietUntil - special.impactAt, 0.35, 'post-impact breathing room');
+    close(special.dropAt - special.scheduledAt, 1.6, 'readable introduction');
+    close(special.impactAt - special.dropAt, 1.4, 'readable falling object');
+    close(special.endAt - special.scheduledAt, 5, 'actor dwell time');
+    const orders = game.deliveryForecast.filter(order => order.spawnedAt >= special.quietFrom && order.spawnedAt < special.quietUntil);
+    assert.equal(orders.length, 1, 'the quiet window should reserve exactly one ordinary delivery');
+    assert.equal(orders[0].showcase, true);
+    close(orders[0].spawnedAt, special.deliverySlotAt, 'showcase arrival');
+    close(orders[0].deadline, special.impactAt - 0.9, 'showcase must finish before the visual payoff');
+  }
+});
+
+test('quiet-window slot selection preserves ordinary time and skips dense arrivals', () => {
+  const schedule = createChaosSchedule(42).specialSchedule;
+  for (const special of schedule) {
+    assert.equal(nextDeliverySlot(special.quietFrom - 0.01, schedule), special.quietFrom - 0.01);
+    assert.equal(nextDeliverySlot(special.quietFrom, schedule), special.deliverySlotAt);
+    assert.equal(nextDeliverySlot(special.deliverySlotAt - 0.01, schedule), special.deliverySlotAt);
+    assert.equal(nextDeliverySlot(special.deliverySlotAt, schedule), special.deliverySlotAt);
+    assert.equal(nextDeliverySlot(special.deliverySlotAt + 0.01, schedule), special.quietUntil);
+    assert.equal(nextDeliverySlot(special.quietUntil, schedule), special.quietUntil);
+    assert.equal(encounterWindowAt(special.quietFrom - 0.01, schedule), null);
+    assert.equal(encounterWindowAt(special.quietFrom, schedule)?.id, special.id);
+    assert.equal(encounterWindowAt(special.impactAt, schedule)?.id, special.id);
+    assert.equal(encounterWindowAt(special.quietUntil, schedule), null);
+  }
+});
+
 test('rare swaps come from the real seeded plan and stay positive treasures', () => {
   for (const [kind, actor, value] of [['underwear', 'super', 50], ['plunger', 'fairy', 60]]) {
     const special = example(kind);
@@ -91,9 +147,9 @@ test('rare swaps come from the real seeded plan and stay positive treasures', ()
 
 test('an encounter appears once and cannot affect the player before its advertised impact', () => {
   const special = example('banana');
-  close(special.dropAt - special.scheduledAt, 0.95, 'throw timing');
-  close(special.impactAt - special.scheduledAt, 1.75, 'impact timing');
-  close(special.endAt - special.scheduledAt, 3.65, 'departure timing');
+  close(special.dropAt - special.scheduledAt, 1.6, 'throw timing');
+  close(special.impactAt - special.scheduledAt, 3, 'impact timing');
+  close(special.endAt - special.scheduledAt, 5, 'departure timing');
   const initial = collisionState(special, undefined, {
     elapsed: special.scheduledAt - 0.01, specials: [], nextSpecialIndex: 0,
   });
@@ -269,7 +325,7 @@ test('special transitions preserve nested inputs and keep all encounter events n
   assert.notEqual(result.specials[0], state.specials[0]);
 });
 
-test('100 seeds at 20/30/60 fps preserve all 55 delivery orders and avoid danger on the delivery route', () => {
+test('100 seeds at 20/30/60 fps preserve the breathing schedule, deliveries and safe encounter route', () => {
   for (let seed = 0; seed < 100; seed += 1) {
     let baseline;
     for (const fps of [60, 30, 20]) {
@@ -277,9 +333,9 @@ test('100 seeds at 20/30/60 fps preserve all 55 delivery orders and avoid danger
       const { state, forecast, orders, events } = result;
       const context = `seed ${seed}/${fps} fps`;
       assert.equal(state.mode, 'ended', context);
-      assert.equal(orders.length, 55, `${context}: encounters must not consume delivery randomness`);
-      assert.equal(state.caught, 55, `${context}: every delivery must remain catchable`);
-      assert.equal(state.perfect, 55, `${context}: the perfect route must remain possible`);
+      assert.equal(orders.length, forecast.length, `${context}: every scheduled order must be spawned`);
+      assert.equal(state.caught, orders.length, `${context}: every delivery must remain catchable`);
+      assert.equal(state.perfect, orders.length, `${context}: the perfect route must remain possible`);
       assert.equal(state.missed, 0, context);
       assert.equal(state.chaosStats.hits, 0, `${context}: danger must stay outside the catch route`);
       assert.equal(state.chaosStats.encounters, 4, context);
@@ -287,7 +343,7 @@ test('100 seeds at 20/30/60 fps preserve all 55 delivery orders and avoid danger
       assert.equal(state.specials.length, 0, context);
       assert.equal(state.shield, false, 'the round must clear temporary shield state');
       assert.equal(events.filter(event => event.type === 'special-appear').length, 4);
-      assert.equal(events.filter(event => ['perfect', 'good'].includes(event.type)).length, 55);
+      assert.equal(events.filter(event => ['perfect', 'good'].includes(event.type)).length, orders.length);
       assert.equal(events.filter(event => event.type === 'miss').length, 0);
       assert.equal(forecast.length, orders.length, context);
       for (let index = 0; index < orders.length; index += 1) {
@@ -297,9 +353,15 @@ test('100 seeds at 20/30/60 fps preserve all 55 delivery orders and avoid danger
       const outcomes = events.filter(event => event.type.startsWith('special-') && event.type !== 'special-appear').map(({ type, id, kind, delta }) => ({ type, id, kind, delta }));
       assert.equal(outcomes.length, 4, context);
       if (baseline) {
+        assert.deepEqual(state.specialSchedule, baseline.schedule, `${context}: the encounter schedule must not vary by fps`);
+        assert.equal(orders.length, baseline.orders.length, `${context}: order count must not vary by fps`);
+        orders.forEach((order, index) => {
+          assert.equal(order.id, baseline.orders[index].id);
+          for (const field of ['x', 'spawnedAt', 'deadline']) close(order[field], baseline.orders[index][field], `${context} cross-fps order ${index} ${field}`);
+        });
         assert.deepEqual(outcomes, baseline.outcomes, `${context}: encounter outcomes should not depend on frame rate`);
         close(state.score, baseline.score, `${context} score`);
-      } else baseline = { outcomes, score: state.score };
+      } else baseline = { outcomes, score: state.score, orders, schedule: state.specialSchedule };
     }
   }
 });

@@ -26,7 +26,7 @@ export function specialDropX(route, impactAt, danger, tieBreaker = 0) {
   return leftClearance === rightClearance ? (tieBreaker < .5 ? 48 : 342) : leftClearance > rightClearance ? 48 : 342;
 }
 
-export function createChaosState(seed, deliveryForecast) {
+export function createChaosSchedule(seed) {
   let specialSeed = (seed ^ 0x9e3779b9) >>> 0;
   const pick = () => { const result = random(specialSeed); specialSeed = result[0]; return result[1]; };
   const cast = [...CHAOS_CAST];
@@ -34,11 +34,12 @@ export function createChaosState(seed, deliveryForecast) {
     const other = Math.floor(pick() * (index + 1));
     [cast[index], cast[other]] = [cast[other], cast[index]];
   }
-  const specialPlan = cast.map((character, index) => {
-    const scheduledAt = [5.8, 11.6, 17.4, 23.2][index] + (pick() - .5) * .3;
+  const specialSchedule = cast.map((character, index) => {
+    const scheduledAt = [5.5, 11.3, 17.1, 22.9][index] + (pick() - .5) * .3;
     const rare = pick() < .1 && (character.actor === 'super' || character.actor === 'fairy');
-    const special = { ...character, id: `chaos-${index + 1}`, scheduledAt, dropAt: scheduledAt + .95,
-      impactAt: scheduledAt + 1.75, endAt: scheduledAt + 3.65, rare,
+    const special = { ...character, id: `chaos-${index + 1}`, scheduledAt, dropAt: scheduledAt + 1.6,
+      impactAt: scheduledAt + 3, endAt: scheduledAt + 5, rare,
+      quietFrom: scheduledAt - 1.45, quietUntil: scheduledAt + 3.35, deliverySlotAt: scheduledAt + .85,
       kind: rare ? character.actor === 'super' ? 'underwear' : 'plunger' : character.kind,
       label: rare ? character.actor === 'super' ? '红内裤' : '马桶搋子' : character.label,
       danger: rare ? false : character.danger,
@@ -46,9 +47,16 @@ export function createChaosState(seed, deliveryForecast) {
       line: rare ? character.actor === 'super' ? '等等，我的内裤呢？！' : '糟糕，法器拿错了。' : character.line,
       intro: rare ? '稀有奇遇！金标是宝物，接住加分' : character.intro,
     };
-    special.x = specialDropX(deliveryForecast, special.impactAt, special.danger, pick());
+    special.tieBreaker = pick();
     return special;
   });
+  return { specialSeed, specialSchedule };
+}
+
+export function createChaosState(seed, deliveryForecast, schedule = createChaosSchedule(seed)) {
+  const { specialSeed, specialSchedule } = schedule;
+  const specialPlan = specialSchedule.map(special => ({ ...special,
+    x: specialDropX(deliveryForecast, special.impactAt, special.danger, special.tieBreaker) }));
   return { specialSeed, specialPlan, specials: [], nextSpecialIndex: 0, shield: false,
     chaosStats: { encounters: 0, dodged: 0, hits: 0, treasures: 0, shieldBlocks: 0, bonus: 0, penalty: 0 } };
 }

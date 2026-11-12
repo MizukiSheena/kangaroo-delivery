@@ -23,14 +23,14 @@
       <canvas id="game" width="780" height="1520" aria-label="拖动屏幕下方左右移动袋鼠，接住索降的外卖箱"></canvas>
       <div class="game-ui">
         <header class="topbar"><a class="brand" href="./" aria-label="袋鼠接单首页"><i class="brand-mark"><b></b><b></b></i>袋鼠接单<span>晴天营业中</span></a><div class="top-actions"><button id="sound" class="icon-button" aria-label="开启声音" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M11 5 6 9H3v6h3l5 4V5Z"/><path id="sound-waves" d="m16 9 6 6m0-6-6 6"/></svg></button><button id="pause" class="icon-button" aria-label="暂停游戏" hidden><svg viewBox="0 0 24 24" fill="currentColor"><rect x="7" y="5" width="3" height="14" rx="1"/><rect x="14" y="5" width="3" height="14" rx="1"/></svg></button></div></header>
-        <div id="hud" class="hud" hidden><div class="score-block"><small>今日送达</small><strong><span id="score">0</span><em>分</em></strong></div><div class="combo-block"><span id="combo">准备接单</span><small id="stage-label">来单啦，接稳第一单</small></div><div class="timer"><svg viewBox="0 0 44 44"><circle class="timer-track" cx="22" cy="22" r="19"/><circle id="timer-ring" cx="22" cy="22" r="19"/></svg><span id="time">30</span></div></div>
+        <div id="hud" class="hud" hidden><div class="score-block"><small>今日送达</small><strong><span id="score">0</span><em>分</em></strong></div><div class="combo-block"><span id="combo">准备接单</span><small id="stage-label">先接稳，慢慢熟悉</small></div><div class="timer"><svg viewBox="0 0 44 44"><circle class="timer-track" cx="22" cy="22" r="19"/><circle id="timer-ring" cx="22" cy="22" r="19"/></svg><span id="time">30</span></div></div>
         <div id="feedback" class="feedback" aria-live="polite"></div>
 
         <section id="welcome" class="welcome panel">
-          <p class="little-label">一份外卖，一点小美好</p>
+          <p class="little-label">接几单外卖，看一场小奇遇</p>
           <h2>袋鼠<span>接单</span></h2>
           <p class="welcome-subtitle">外卖要接 · 红标要躲 · 金标加分</p>
-          <div class="welcome-bottom"><div class="instruction"><span class="swipe-icon">↔</span><p>左右滑动，接住外卖<small>接得准，分数更高哦</small></p></div><button id="start" class="primary-button" disabled><span id="start-label">正在准备小广场…</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 5 7 7-7 7"/></svg></button><p class="best-line"><b data-round-duration>30</b> 秒奇遇挑战<span>·</span>最高纪录 <b id="best">0</b> 分</p><p id="load-error" class="load-error" hidden>素材暂时没加载好，请点击重试。</p></div>
+          <div class="welcome-bottom"><div class="instruction"><span class="swipe-icon">↔</span><p>左右滑动，接住外卖<small>接得准，分数更高哦</small></p></div><button id="start" class="primary-button" disabled><span id="start-label">正在准备小广场…</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 5 7 7-7 7"/></svg></button><p class="best-line"><b data-round-duration>30</b> 秒轻松奇遇<span>·</span>最高纪录 <b id="best">0</b> 分</p><p id="load-error" class="load-error" hidden>素材暂时没加载好，请点击重试。</p></div>
         </section>
 
         <section id="pause-panel" class="modal-panel panel" hidden><div class="modal-card"><p class="little-label">小短腿，歇一会儿</p><h2>等你回来</h2><p>外卖和小袋鼠都在这里。</p><button id="resume" class="primary-button">继续接单 <span>→</span></button><button id="restart-pause" class="text-button">重新开始</button></div></section>

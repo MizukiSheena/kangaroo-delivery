@@ -13,7 +13,7 @@ function dueDelivery(game, x, extra = {}) {
   const lowerDuration = difficultyAt(game.elapsed).lowerDuration;
   return {
     ...game,
-    specialPlan: [], specials: [], nextSpecialIndex: 0,
+    specialPlan: [], specials: [], nextSpecialIndex: 0, specialSchedule: [],
     nextDeliveryAt: Infinity,
     deliveries: [{
       id: 99, x, age: WORLD.flyDuration + lowerDuration - 0.01,
@@ -222,8 +222,8 @@ test('seeded deliveries are repeatable, use distinct IDs and stay reachable', ()
   for (let index = 0; index < 40; index += 1) {
     const previous = left.lastDropX;
     const previousDeadline = left.lastDeadline;
-    left = createDelivery({ ...left, elapsed: index * 0.6, deliveries: [] });
-    right = createDelivery({ ...right, elapsed: index * 0.6, deliveries: [] });
+    left = createDelivery({ ...left, elapsed: index * 0.6, deliveries: [], specialSchedule: [] });
+    right = createDelivery({ ...right, elapsed: index * 0.6, deliveries: [], specialSchedule: [] });
     assert.deepEqual(left, right);
     const delivery = left.deliveries.at(-1);
     assert.equal(delivery.id, index + 1);
@@ -235,7 +235,7 @@ test('seeded deliveries are repeatable, use distinct IDs and stay reachable', ()
   }
 });
 
-test('100 seeded 30-second rounds stay fair while reaching four simultaneous orders', () => {
+test('100 seeded 30-second rounds stay fair with quiet encounters and a busy finale', () => {
   assert.equal(WORLD.duration, 30, 'the requested round length is 30 seconds');
   const telemetry = [];
   for (let seed = 0; seed < 100; seed += 1) {
@@ -276,8 +276,9 @@ test('100 seeded 30-second rounds stay fair while reaching four simultaneous ord
     assert.equal(state.perfect, state.caught, `seed ${seed} should allow precise alignment`);
     assert.equal(state.caught, seen.size, `seed ${seed} should not leave unfinishable orders`);
     assert.ok(state.deliveries.every(delivery => delivery.resolved), `seed ${seed} may not leave a pending order`);
-    assert.ok(state.caught >= 40, `seed ${seed} should contain a busy 30-second round`);
-    assert.equal(lateMaxUnresolved, 4, 'the final phase must genuinely reach four unresolved orders');
+    assert.equal(state.caught, state.deliveryForecast.length, `seed ${seed} must complete its forecast`);
+    assert.ok(state.caught > state.specialPlan.length, `seed ${seed} must still contain ordinary delivery phases`);
+    assert.ok(lateMaxUnresolved >= 3 && lateMaxUnresolved <= 4, 'the final phase must still have three or four unresolved orders');
     telemetry.push({ seed, orders: state.caught, maxUnresolved });
   }
   console.log('Round telemetry:', JSON.stringify({
@@ -289,7 +290,7 @@ test('100 seeded 30-second rounds stay fair while reaching four simultaneous ord
 });
 
 test('four occupied lanes refuse a fifth order without consuming randomness or IDs', () => {
-  let state = { ...playing(), elapsed: 22 };
+  let state = { ...playing(), elapsed: 22, specialSchedule: [] };
   for (let index = 0; index < 4; index += 1) state = createDelivery(state);
   assert.equal(state.deliveries.length, 4);
   const blocked = createDelivery(state);
@@ -322,7 +323,7 @@ test('20, 30 and 60 fps produce identical order schedules for 100 seeds', () => 
     assert.equal(state.missed, 0, `seed ${seed} at ${fps} fps must remain catchable`);
     assert.equal(state.caught, orders.size, `seed ${seed} at ${fps} fps may not leave dead orders`);
     assert.ok(state.deliveries.every(delivery => delivery.resolved));
-    assert.equal(peak, 4, `seed ${seed} at ${fps} fps must reach four concurrent orders`);
+    assert.ok(peak >= 3 && peak <= 4, `seed ${seed} at ${fps} fps must preserve a busy finale`);
     return [...orders.values()];
   }
 
@@ -345,7 +346,7 @@ test('20, 30 and 60 fps produce identical order schedules for 100 seeds', () => 
 });
 
 test('a resolved drone still occupies its lane until it has fully departed', () => {
-  let state = { ...playing(), elapsed: 22 };
+  let state = { ...playing(), elapsed: 22, specialSchedule: [] };
   for (let index = 0; index < 4; index += 1) state = createDelivery(state);
   const resolvedDeadline = state.elapsed - WORLD.departureDuration / 2;
   const resolvedLifetime = WORLD.flyDuration + difficultyAt(20).lowerDuration;

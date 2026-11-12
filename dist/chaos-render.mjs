@@ -79,23 +79,26 @@ export function createChaosRenderer(ctx) {
   }
 
   function bubble(value, x, y, danger = false) {
-    const width = Math.min(286, value.length * 9 + 22);
+    const width = Math.min(300, value.length * 11 + 22);
     x = clamp(x, width / 2 + 8, 382 - width / 2);
     ctx.fillStyle = '#fffdf3ee'; ctx.strokeStyle = danger ? '#d9a69a99' : '#cbb97c99'; ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.roundRect(x - width / 2, y - 11, width, 23, 9); ctx.fill(); ctx.stroke();
-    text(value, x, y + 1, 9, danger ? '#a47265' : '#91814e');
+    ctx.beginPath(); ctx.roundRect(x - width / 2, y - 11, width, 28, 10); ctx.fill(); ctx.stroke();
+    text(value, x, y + 3, 11, danger ? '#a47265' : '#91814e');
   }
 
   function drawSpecials(game, t) {
     for (const special of game.specials) {
       const direction = special.column % 2 ? -1 : 1;
       const entry = direction > 0 ? -70 : 460;
-      const enter = clamp(special.age / .65, 0, 1);
-      const exit = clamp((game.elapsed - (special.endAt - .6)) / .6, 0, 1);
+      const preludeDuration = special.dropAt - special.scheduledAt;
+      const reactionDuration = special.endAt - special.impactAt;
+      const enter = clamp(special.age / (preludeDuration * .5), 0, 1);
+      const exitDuration = reactionDuration * .3;
+      const exit = clamp((game.elapsed - (special.endAt - exitDuration)) / exitDuration, 0, 1);
       const actorX = entry + (special.x - entry) * (1 - (1 - enter) ** 3) + exit ** 2 * direction * 470;
       const actorY = 195 + Math.sin(t * 4 + special.column) * 2;
       const reaction = game.elapsed >= special.impactAt;
-      portrait(special.column, actorX, actorY, 77, reaction, direction);
+      portrait(special.column, actorX, actorY, 86, reaction, direction);
       if (exit < .1) bubble(reaction ? special.line : special.intro, actorX, 149, special.danger);
       const color = special.danger ? '#bf7d6c' : '#bba04b';
       if (!special.resolved) {
@@ -113,10 +116,11 @@ export function createChaosRenderer(ctx) {
         }
       } else {
         const since = game.elapsed - special.impactAt;
-        if (since < .65) {
-          ctx.save(); ctx.globalAlpha = 1 - since / .65;
+        const lingerDuration = reactionDuration * .5;
+        if (since < lingerDuration) {
+          ctx.save(); ctx.globalAlpha = 1 - since / lingerDuration;
           const caught = special.outcome === 'special-reward' || special.outcome === 'special-shield';
-          item(special.kind, special.x, 559 + Math.min(1, since / .25) * (caught ? 20 : 76), caught ? 30 * Math.max(0, 1 - since / .35) : 30, since * .5);
+          item(special.kind, special.x, 559 + Math.min(1, since / (lingerDuration * .4)) * (caught ? 20 : 76), caught ? 30 * Math.max(0, 1 - since / (lingerDuration * .5)) : 30, since * .5);
           ctx.restore();
         }
       }

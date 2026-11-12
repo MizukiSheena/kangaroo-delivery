@@ -1,4 +1,4 @@
-import { WORLD, createGame, startGame, pauseGame, resumeGame, setTarget, advanceGame, clamp, difficultyAt } from './game-core.mjs';
+import { WORLD, createGame, startGame, pauseGame, resumeGame, setTarget, advanceGame, clamp, difficultyAt, encounterWindowAt } from './game-core.mjs';
 import { createChaosRenderer } from './chaos-render.mjs';
 
 const $ = id => document.getElementById(id);
@@ -21,7 +21,7 @@ let previousTime;
 let pointer = null;
 let previousPointerX = 0;
 let keys = new Set();
-const bestStorageKey = `kangaroo-delivery-${WORLD.duration}s-chaos-v1-best`;
+const bestStorageKey = `kangaroo-delivery-${WORLD.duration}s-chaos-v2-best`;
 try { best = Math.max(0, Number(localStorage.getItem(bestStorageKey)) || 0); } catch {}
 $('best').textContent = best;
 document.querySelectorAll('[data-round-duration]').forEach(node => { node.textContent = WORLD.duration; });
@@ -126,7 +126,8 @@ function finish() {
   $('final-combo').textContent = game.maxCombo;
   $('final-chaos').textContent = `奇遇 ${game.chaosStats.encounters} 次 · 躲过 ${game.chaosStats.dodged} 次 · 宝物 ${game.chaosStats.treasures} 件${game.chaosStats.shieldBlocks ? ` · 护盾挡住 ${game.chaosStats.shieldBlocks} 次` : ''}`;
   $('new-record').hidden = !record;
-  $('result-title').textContent = game.caught >= 35 ? '金牌接箱员' : game.caught >= 18 ? '接单小能手' : '努力的小袋鼠';
+  const deliveryRatio = game.caught / Math.max(1, game.deliveryForecast.length);
+  $('result-title').textContent = deliveryRatio >= .75 ? '金牌接箱员' : deliveryRatio >= .4 ? '接单小能手' : '努力的小袋鼠';
   $('result').hidden = false;
   $('pause').hidden = true;
   $('play-hint').hidden = true;
@@ -141,7 +142,8 @@ function updateHud() {
   $('timer-ring').style.strokeDashoffset = 119.38 * game.elapsed / WORLD.duration;
   $('time').parentElement.classList.toggle('urgent', seconds <= 8);
   $('combo').textContent = `${game.shield ? '◇ ' : ''}${game.combo > 1 ? `${game.combo} 连击！` : game.combo === 1 ? '稳稳接住！' : '准备接单'}`;
-  $('stage-label').textContent = difficultyAt(game.elapsed).name;
+  const guest = encounterWindowAt(game.elapsed, game.specialSchedule);
+  $('stage-label').textContent = guest ? game.elapsed < guest.scheduledAt ? '客人快来啦，先接稳这一单' : '客人路过，抬头看看' : difficultyAt(game.elapsed).name;
 }
 
 function handleEvents() {
