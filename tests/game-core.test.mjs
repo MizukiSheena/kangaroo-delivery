@@ -13,6 +13,7 @@ function dueDelivery(game, x, extra = {}) {
   const lowerDuration = difficultyAt(game.elapsed).lowerDuration;
   return {
     ...game,
+    specialPlan: [], specials: [], nextSpecialIndex: 0,
     nextDeliveryAt: Infinity,
     deliveries: [{
       id: 99, x, age: WORLD.flyDuration + lowerDuration - 0.01,

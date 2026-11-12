@@ -1,5 +1,5 @@
 export const WORLD = Object.freeze({ width: 390, height: 760, duration: 30, minX: 43, maxX: 347, speed: 520, catchY: 559, flyDuration: 0.45, departureDuration: 0.16, maxConcurrent: 4 });
-export const DELIVERY_LANES = Object.freeze([190, 265, 340, 415]);
+export const DELIVERY_LANES = Object.freeze([260, 320, 380, 440]);
 export const clamp = (value, low, high) => Math.max(low, Math.min(high, value));
 export const moveToward = (from, to, distance) => from + clamp(to - from, -distance, distance);
 
@@ -21,11 +21,19 @@ function random(seed) {
 }
 
 export function createGame(seed = 12345) {
-  return {
+  const state = {
     mode: 'ready', elapsed: 0, score: 0, combo: 0, maxCombo: 0, caught: 0, perfect: 0, missed: 0,
     player: { x: 195, target: 195, facing: 1, velocity: 0, emotion: 'idle', emotionUntil: 0 },
     deliveries: [], nextDeliveryAt: 0.35, nextId: 1, lastDropX: 195, lastDeadline: 0, seed: seed >>> 0, events: [],
   };
+  const deliveryForecast = [];
+  let forecast = { ...state };
+  while (Number.isFinite(forecast.nextDeliveryAt) && deliveryForecast.length < 64) {
+    const previousId = forecast.nextId;
+    forecast = createDelivery({ ...forecast, elapsed: forecast.nextDeliveryAt });
+    if (forecast.nextId !== previousId) deliveryForecast.push(forecast.deliveries.at(-1));
+  }
+  return { ...state, deliveryForecast, ...createChaosState(seed, deliveryForecast) };
 }
 
 export function startGame(game) { return { ...createGame(game.seed), mode: 'playing' }; }
@@ -107,6 +115,9 @@ export function advanceGame(game, dt) {
     }
   }
   next.deliveries = next.deliveries.filter(d => !d.resolved || d.age - d.resolvedAt < WORLD.departureDuration);
-  if (next.elapsed >= WORLD.duration) { next.mode = 'ended'; next.player.velocity = 0; next.events.push({ type: 'ended' }); }
+  next = advanceSpecials(next, game.elapsed, previousX, WORLD.speed);
+  if (next.elapsed >= WORLD.duration) { next.mode = 'ended'; next.shield = false; next.player.velocity = 0; next.events.push({ type: 'ended' }); }
   return next;
 }
+import { createChaosState, advanceSpecials } from './chaos-core.mjs';
+

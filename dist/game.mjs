@@ -1,8 +1,10 @@
 import { WORLD, createGame, startGame, pauseGame, resumeGame, setTarget, advanceGame, clamp, difficultyAt } from './game-core.mjs';
+import { createChaosRenderer } from './chaos-render.mjs';
 
 const $ = id => document.getElementById(id);
 const canvas = $('game');
 const ctx = canvas.getContext('2d');
+const chaosRenderer = createChaosRenderer(ctx);
 const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
 let game = createGame(Date.now());
 let ready = false;
@@ -19,7 +21,7 @@ let previousTime;
 let pointer = null;
 let previousPointerX = 0;
 let keys = new Set();
-const bestStorageKey = `kangaroo-delivery-${WORLD.duration}s-v1-best`;
+const bestStorageKey = `kangaroo-delivery-${WORLD.duration}s-chaos-v1-best`;
 try { best = Math.max(0, Number(localStorage.getItem(bestStorageKey)) || 0); } catch {}
 $('best').textContent = best;
 document.querySelectorAll('[data-round-duration]').forEach(node => { node.textContent = WORLD.duration; });
@@ -75,6 +77,7 @@ function begin() {
   if (!ready) { loadAssets(); return; }
   clearInput();
   game = startGame(game);
+  chaosRenderer.reset();
   previousTime = performance.now();
   effects = [];
   feedbackUntil = 0;
@@ -121,6 +124,7 @@ function finish() {
   $('final-caught').textContent = game.caught;
   $('final-perfect').textContent = game.perfect;
   $('final-combo').textContent = game.maxCombo;
+  $('final-chaos').textContent = `奇遇 ${game.chaosStats.encounters} 次 · 躲过 ${game.chaosStats.dodged} 次 · 宝物 ${game.chaosStats.treasures} 件${game.chaosStats.shieldBlocks ? ` · 护盾挡住 ${game.chaosStats.shieldBlocks} 次` : ''}`;
   $('new-record').hidden = !record;
   $('result-title').textContent = game.caught >= 35 ? '金牌接箱员' : game.caught >= 18 ? '接单小能手' : '努力的小袋鼠';
   $('result').hidden = false;
@@ -136,13 +140,32 @@ function updateHud() {
   $('time').textContent = seconds;
   $('timer-ring').style.strokeDashoffset = 119.38 * game.elapsed / WORLD.duration;
   $('time').parentElement.classList.toggle('urgent', seconds <= 8);
-  $('combo').textContent = game.combo > 1 ? `${game.combo} 连击！` : game.combo === 1 ? '稳稳接住！' : '准备接单';
+  $('combo').textContent = `${game.shield ? '◇ ' : ''}${game.combo > 1 ? `${game.combo} 连击！` : game.combo === 1 ? '稳稳接住！' : '准备接单'}`;
   $('stage-label').textContent = difficultyAt(game.elapsed).name;
 }
 
 function handleEvents() {
   for (const event of game.events) {
     if (event.type === 'ended') { finish(); continue; }
+    if (event.type.startsWith('special-')) {
+      if (event.type === 'special-appear') continue;
+      chaosRenderer.noteOutcome(event, clock);
+      const messages = {
+        'special-hit': `哎呀，${event.label}！${event.delta || ''}`,
+        'special-dodge': '轻巧躲过，继续接单！',
+        'special-reward': `${event.label} +${event.delta}${event.kind === 'wand' ? ' · 护盾到手' : ''}`,
+        'special-shield': '护盾挡住啦，连击保住！',
+        'special-missed': '宝物溜走啦，下次再接',
+      };
+      $('feedback').classList.toggle('miss', event.type === 'special-hit');
+      $('feedback').textContent = messages[event.type];
+      $('feedback').classList.add('show');
+      feedbackUntil = clock + 1.2;
+      if (event.type === 'special-reward' || event.type === 'special-shield') {
+        tone(880, .15); tone(1175, .2, .12, .025);
+      } else if (event.type === 'special-hit') tone(180, .15, 0, .025);
+      continue;
+    }
     const missed = event.type === 'miss';
     $('feedback').classList.toggle('miss', missed);
     $('feedback').textContent = missed ? '没关系，下一单加油' : event.type === 'perfect' ? `完美接单 +${event.delta}` : `稳稳接住 +${event.delta}`;
@@ -348,7 +371,7 @@ function drawDelivery(delivery, t) {
       parcel(droneX, droneY + 29, 25);
     }
   }
-  drawDrone(droneX, droneY + bob, t, .85);
+  drawDrone(droneX, droneY + bob, t, .70);
   if (!delivery.resolved) {
     ellipse(droneX + 40, droneY - 19, 8, 8, color);
     ctx.fillStyle = '#fffdf4'; ctx.font = '700 8px system-ui'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(String(delivery.id), droneX + 40, droneY - 18.5);
@@ -380,6 +403,7 @@ function render(t) {
   ctx.setTransform(2, 0, 0, 2, 0, 0);
   background(t);
   if (game.mode === 'ready') {
+    chaosRenderer.drawPreview(t);
     const bob = reducedMotion ? 0 : Math.sin(t * 2) * 3;
     line(195, 354 + bob, 195, 454 + bob, '#85927daa', 1.1);
     drawDrone(195, 330 + bob, t, 1.12);
@@ -391,7 +415,10 @@ function render(t) {
   } else {
     const sorted = [...game.deliveries].sort((a, b) => a.hoverY - b.hoverY);
     sorted.forEach(delivery => drawDelivery(delivery, t));
+    chaosRenderer.drawSpecials(game, t);
     drawCharacter(game.player.x, 649, t, game.player.emotion, game.player.velocity, game.player.facing);
+    if (game.shield) chaosRenderer.drawShield(game.player.x, 649, t);
+    chaosRenderer.drawReaction(game.player.x, 649, t);
     drawEffects();
   }
 }
