@@ -19,8 +19,12 @@ let previousTime;
 let pointer = null;
 let previousPointerX = 0;
 let keys = new Set();
-try { best = Math.max(0, Number(localStorage.getItem('kangaroo-delivery-best')) || 0); } catch {}
+const bestStorageKey = `kangaroo-delivery-${WORLD.duration}s-v1-best`;
+try { best = Math.max(0, Number(localStorage.getItem(bestStorageKey)) || 0); } catch {}
 $('best').textContent = best;
+document.querySelectorAll('[data-round-duration]').forEach(node => { node.textContent = WORLD.duration; });
+$('time').textContent = WORLD.duration;
+$('feedback').style.top = '87%';
 
 function loadImage(src) {
   return new Promise((resolve, reject) => {
@@ -110,7 +114,7 @@ function finish() {
   const record = game.score > best;
   if (record) {
     best = game.score;
-    try { localStorage.setItem('kangaroo-delivery-best', String(best)); } catch {}
+    try { localStorage.setItem(bestStorageKey, String(best)); } catch {}
   }
   $('best').textContent = best;
   $('final-score').textContent = game.score;
@@ -118,7 +122,7 @@ function finish() {
   $('final-perfect').textContent = game.perfect;
   $('final-combo').textContent = game.maxCombo;
   $('new-record').hidden = !record;
-  $('result-title').textContent = game.caught >= 15 ? '金牌接箱员' : game.caught >= 8 ? '接单小能手' : '努力的小袋鼠';
+  $('result-title').textContent = game.caught >= 35 ? '金牌接箱员' : game.caught >= 18 ? '接单小能手' : '努力的小袋鼠';
   $('result').hidden = false;
   $('pause').hidden = true;
   $('play-hint').hidden = true;
@@ -131,7 +135,7 @@ function updateHud() {
   const seconds = Math.ceil(WORLD.duration - game.elapsed);
   $('time').textContent = seconds;
   $('timer-ring').style.strokeDashoffset = 119.38 * game.elapsed / WORLD.duration;
-  $('time').parentElement.classList.toggle('urgent', seconds <= 10);
+  $('time').parentElement.classList.toggle('urgent', seconds <= 8);
   $('combo').textContent = game.combo > 1 ? `${game.combo} 连击！` : game.combo === 1 ? '稳稳接住！' : '准备接单';
   $('stage-label').textContent = difficultyAt(game.elapsed).name;
 }
@@ -305,6 +309,13 @@ function drawCharacter(x, footY, t, emotion = 'idle', velocity = 0, facing = 1) 
 }
 
 function drawDelivery(delivery, t) {
+  const color = ['#7faaa0', '#c5a14f', '#a28eaf', '#85a15e'][delivery.lane ?? 0];
+  function parcel(x, y, size = 31) {
+    drawBox(x, y, size);
+    ellipse(x, y - 17, 7, 7, color);
+    ctx.fillStyle = '#fffdf4'; ctx.font = '700 8px system-ui'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(String(delivery.id), x, y - 16.5);
+  }
   const flyProgress = clamp(delivery.age / delivery.flyDuration, 0, 1);
   const flightEase = 1 - (1 - flyProgress) ** 3;
   const entryX = delivery.direction > 0 ? -90 : 480;
@@ -316,38 +327,41 @@ function drawDelivery(delivery, t) {
   let parcelY = attachY + 26 + (WORLD.catchY - attachY - 26) * lower;
   if (delivery.resolved) {
     const since = delivery.age - delivery.resolvedAt;
-    const departure = clamp(since / 1.15, 0, 1);
-    droneX = delivery.x + delivery.direction * 450 * departure ** 2;
-    droneY -= departure * 65;
-    if (delivery.outcome === 'miss') {
-      parcelY = Math.min(635, WORLD.catchY + since * 290);
-      drawBox(delivery.x, parcelY, 31, since * .3, clamp(1.3 - since, 0, 1));
-    }
-    if (since < .5) {
-      const ropeEnd = WORLD.catchY + (attachY - WORLD.catchY) * clamp(since / .5, 0, 1);
-      line(droneX, droneY + 20, droneX, ropeEnd, '#8c938588', 1.1);
+    const departure = clamp(since / WORLD.departureDuration, 0, 1);
+    droneX = delivery.x + delivery.direction * 480 * departure;
+    droneY -= departure * 15;
+    if (since < .10) {
+      const ropeEnd = WORLD.catchY + (attachY - WORLD.catchY) * clamp(since / .10, 0, 1);
+      line(droneX, droneY + 20, droneX, ropeEnd, `${color}88`, 1.1);
     }
   } else {
     const pulse = reducedMotion ? 1 : .75 + Math.sin(t * 4) * .15;
     ctx.save(); ctx.globalAlpha = pulse;
-    ellipse(delivery.x, 638, 31, 8, '#dbc66a23');
-    ctx.strokeStyle = '#b9b27388'; ctx.lineWidth = 1.2; ctx.setLineDash([4, 4]); ctx.beginPath(); ctx.ellipse(delivery.x, 638, 31, 8, 0, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]);
+    ellipse(delivery.x, 638, 28, 9, `${color}22`);
+    ctx.strokeStyle = `${color}bb`; ctx.lineWidth = 1.2; ctx.setLineDash([4, 4]); ctx.beginPath(); ctx.ellipse(delivery.x, 638, 28, 9, 0, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]);
+    ctx.fillStyle = color; ctx.font = '700 9px system-ui'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(String(delivery.id), delivery.x, 638.5);
     ctx.restore();
     if (flyProgress >= 1) {
-      line(delivery.x, attachY + bob, delivery.x, parcelY - 17, '#838e7ecc', 1.1);
-      ellipse(delivery.x, parcelY - 17, 2, 2, '#a1a48a');
-      drawBox(delivery.x, parcelY, 31, 0);
+      line(delivery.x, attachY + bob, delivery.x, parcelY - 17, `${color}cc`, 1.2);
+      parcel(delivery.x, parcelY);
     } else {
-      drawBox(droneX, droneY + 34, 25);
+      parcel(droneX, droneY + 29, 25);
     }
   }
-  drawDrone(droneX, droneY + bob, t);
+  drawDrone(droneX, droneY + bob, t, .85);
+  if (!delivery.resolved) {
+    ellipse(droneX + 40, droneY - 19, 8, 8, color);
+    ctx.fillStyle = '#fffdf4'; ctx.font = '700 8px system-ui'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(String(delivery.id), droneX + 40, droneY - 18.5);
+  }
 }
 
 function drawEffects() {
   for (const effect of effects) {
     const progress = effect.age / .7;
-    if (effect.missed) continue;
+    if (effect.missed) {
+      drawBox(effect.x, WORLD.catchY + Math.min(1, effect.age / .25) * 76, 31, effect.age * .3, clamp(1 - effect.age / .6, 0, 1));
+      continue;
+    }
     ctx.save(); ctx.globalAlpha = 1 - progress;
     for (let i = 0; i < 7; i++) {
       const angle = i / 7 * Math.PI * 2;
@@ -398,7 +412,10 @@ function tick(timestamp) {
       remaining -= step;
     }
     updateHud();
-  } else if (game.mode !== 'paused') clock += dt;
+  } else if (game.mode !== 'paused') {
+    clock += dt;
+    if (game.mode === 'ended') effects = effects.map(effect => ({ ...effect, age: effect.age + dt })).filter(effect => effect.age < .7);
+  }
   if (clock > feedbackUntil) $('feedback').classList.remove('show');
   render(clock);
   requestAnimationFrame(tick);

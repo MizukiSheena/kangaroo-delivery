@@ -1,12 +1,13 @@
-export const WORLD = Object.freeze({ width: 390, height: 760, duration: 60, minX: 43, maxX: 347, speed: 340, catchY: 559, flyDuration: 0.6 });
+export const WORLD = Object.freeze({ width: 390, height: 760, duration: 30, minX: 43, maxX: 347, speed: 520, catchY: 559, flyDuration: 0.45, departureDuration: 0.16, maxConcurrent: 4 });
+export const DELIVERY_LANES = Object.freeze([190, 265, 340, 415]);
 export const clamp = (value, low, high) => Math.max(low, Math.min(high, value));
 export const moveToward = (from, to, distance) => from + clamp(to - from, -distance, distance);
 
 export function difficultyAt(elapsed) {
-  if (elapsed < 15) return { name: '慢慢来，接稳就好', interval: 2.7, lowerDuration: 1.9, stage: 0 };
-  if (elapsed < 35) return { name: '来单啦，小跑起来', interval: 2.05, lowerDuration: 1.45, stage: 1 };
-  if (elapsed < 50) return { name: '忙得过来，再接一单', interval: 1.5, lowerDuration: 1.1, stage: 2 };
-  return { name: '最后几单，加油加油！', interval: 1.1, lowerDuration: 0.85, stage: 3 };
+  if (elapsed < 5) return { name: '来单啦，接稳第一单', interval: 1.2, lowerDuration: 1.15, stage: 0 };
+  if (elapsed < 12) return { name: '加快脚步，接单连连', interval: 0.75, lowerDuration: 0.85, stage: 1 };
+  if (elapsed < 22) return { name: '多机齐送，忙得过来！', interval: 0.48, lowerDuration: 0.72, stage: 2 };
+  return { name: '四机高峰，小短腿冲呀！', interval: 0.32, lowerDuration: 0.65, stage: 3 };
 }
 
 export function catchGrade(distance) {
@@ -23,7 +24,7 @@ export function createGame(seed = 12345) {
   return {
     mode: 'ready', elapsed: 0, score: 0, combo: 0, maxCombo: 0, caught: 0, perfect: 0, missed: 0,
     player: { x: 195, target: 195, facing: 1, velocity: 0, emotion: 'idle', emotionUntil: 0 },
-    deliveries: [], nextDeliveryAt: 0.8, nextId: 1, lastDropX: 195, seed: seed >>> 0, events: [],
+    deliveries: [], nextDeliveryAt: 0.35, nextId: 1, lastDropX: 195, lastDeadline: 0, seed: seed >>> 0, events: [],
   };
 }
 
@@ -36,18 +37,29 @@ export function setTarget(game, x) {
 }
 
 export function createDelivery(game) {
+  const deadlineFor = delivery => delivery.deadline ?? game.elapsed - delivery.age + delivery.flyDuration + delivery.lowerDuration;
+  const occupiedLanes = new Set(game.deliveries.filter(d => deadlineFor(d) + WORLD.departureDuration > game.elapsed + 1e-9).map(d => d.lane));
+  const preferredLane = (game.nextId - 1) % DELIVERY_LANES.length;
+  const lane = Array.from({ length: DELIVERY_LANES.length }, (_, offset) => (preferredLane + offset) % DELIVERY_LANES.length).find(index => !occupiedLanes.has(index));
+  if (lane === undefined || game.deliveries.filter(d => deadlineFor(d) > game.elapsed + 1e-9).length >= WORLD.maxConcurrent) return { ...game, nextDeliveryAt: game.elapsed + 0.03 };
   const [seed, value] = random(game.seed);
   const level = difficultyAt(game.elapsed);
+  const deadline = Math.max(game.elapsed + WORLD.flyDuration + level.lowerDuration, game.lastDeadline + 0.28);
+  if (deadline > WORLD.duration - 0.1) return { ...game, nextDeliveryAt: Infinity };
   const direction = value > 0.5 ? 1 : -1;
-  const span = 70 + Math.abs(value - 0.5) * 160;
+  const travelBudget = Math.max(0.05, deadline - game.lastDeadline - 0.12);
+  const maxSpan = Math.min(165, WORLD.speed * travelBudget);
+  const minSpan = Math.min(52, maxSpan * 0.55);
+  const span = minSpan + Math.abs(value - 0.5) * 2 * (maxSpan - minSpan);
   let x = clamp(game.lastDropX + direction * span, 58, 332);
-  if (Math.abs(x - game.lastDropX) < 52) x = clamp(game.lastDropX - direction * span, 58, 332);
+  if (Math.abs(x - game.lastDropX) < minSpan) x = clamp(game.lastDropX - direction * span, 58, 332);
   const delivery = {
-    id: game.nextId, x, age: 0, lowerDuration: level.lowerDuration, flyDuration: WORLD.flyDuration,
-    hoverY: game.nextId % 2 ? 190 : 266, direction: game.nextId % 2 ? 1 : -1,
+    id: game.nextId, x, age: 0, spawnedAt: game.elapsed, deadline, lane,
+    lowerDuration: deadline - game.elapsed - WORLD.flyDuration, flyDuration: WORLD.flyDuration,
+    hoverY: DELIVERY_LANES[lane], direction: game.nextId % 2 ? 1 : -1,
     resolved: false, outcome: null, resolvedAt: null,
   };
-  return { ...game, seed, nextId: game.nextId + 1, lastDropX: x,
+  return { ...game, seed, nextId: game.nextId + 1, lastDropX: x, lastDeadline: deadline,
     nextDeliveryAt: game.elapsed + level.interval, deliveries: [...game.deliveries, delivery] };
 }
 
@@ -61,10 +73,12 @@ export function advanceGame(game, dt) {
   next.player.velocity = (next.player.x - previousX) / step;
   if (Math.abs(next.player.velocity) > 1) next.player.facing = Math.sign(next.player.velocity);
   if (next.player.emotionUntil <= next.elapsed) next.player.emotion = 'idle';
-  if (next.elapsed >= next.nextDeliveryAt && next.elapsed + WORLD.flyDuration + difficultyAt(next.elapsed).lowerDuration <= WORLD.duration - 0.15) {
-    const spawnAt = next.nextDeliveryAt;
-    next = createDelivery(next);
-    next.deliveries.at(-1).age = -Math.min(step, Math.max(0, spawnAt - game.elapsed));
+  if (next.elapsed >= next.nextDeliveryAt) {
+    const spawnAt = Math.max(game.elapsed, next.nextDeliveryAt);
+    const previousId = next.nextId;
+    const elapsed = next.elapsed;
+    next = { ...createDelivery({ ...next, elapsed: spawnAt }), elapsed };
+    if (next.nextId !== previousId) next.deliveries.at(-1).age = -Math.min(step, Math.max(0, spawnAt - game.elapsed));
   }
   for (const delivery of next.deliveries) {
     delivery.age += step;
@@ -72,7 +86,7 @@ export function advanceGame(game, dt) {
       const grade = catchGrade(next.player.x - delivery.x);
       delivery.resolved = true;
       delivery.outcome = grade;
-      delivery.resolvedAt = delivery.age;
+      delivery.resolvedAt = delivery.flyDuration + delivery.lowerDuration;
       if (grade === 'miss') {
         next.missed += 1;
         next.combo = 0;
@@ -87,12 +101,12 @@ export function advanceGame(game, dt) {
         const delta = (grade === 'perfect' ? 20 : 10) + Math.min(20, Math.floor(next.combo / 5) * 5);
         next.score += delta;
         next.player.emotion = 'catch';
-        next.player.emotionUntil = next.elapsed + 0.65;
+        next.player.emotionUntil = next.elapsed + 0.22;
         next.events.push({ type: grade, x: delivery.x, id: delivery.id, delta, combo: next.combo });
       }
     }
   }
-  next.deliveries = next.deliveries.filter(d => !d.resolved || d.age - d.resolvedAt < 1.2);
+  next.deliveries = next.deliveries.filter(d => !d.resolved || d.age - d.resolvedAt < WORLD.departureDuration);
   if (next.elapsed >= WORLD.duration) { next.mode = 'ended'; next.player.velocity = 0; next.events.push({ type: 'ended' }); }
   return next;
 }

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  WORLD, createGame, startGame, pauseGame, resumeGame, setTarget,
+  WORLD, DELIVERY_LANES, createGame, startGame, pauseGame, resumeGame, setTarget,
   advanceGame, difficultyAt, catchGrade, createDelivery, moveToward,
 } from '../dist/game-core.mjs';
 
@@ -10,12 +10,16 @@ function playing(seed = 42) {
 }
 
 function dueDelivery(game, x, extra = {}) {
+  const lowerDuration = difficultyAt(game.elapsed).lowerDuration;
   return {
     ...game,
     nextDeliveryAt: Infinity,
     deliveries: [{
-      id: 99, x, age: 3.99, flyDuration: 0.75, lowerDuration: 3.25,
-      hoverY: 157, direction: 1, resolved: false, outcome: null,
+      id: 99, x, age: WORLD.flyDuration + lowerDuration - 0.01,
+      flyDuration: WORLD.flyDuration, lowerDuration,
+      lane: 0, hoverY: DELIVERY_LANES[0], direction: 1, resolved: false, outcome: null,
+      spawnedAt: game.elapsed - WORLD.flyDuration - lowerDuration + 0.01,
+      deadline: game.elapsed + 0.01,
       resolvedAt: null, ...extra,
     }],
   };
@@ -32,7 +36,7 @@ function freezeDeep(value) {
 test('a fresh round is ready, and starting resets every result counter', () => {
   const initial = createGame(77);
   assert.equal(initial.mode, 'ready');
-  const restarted = startGame({ ...initial, score: 500, combo: 8, caught: 12, elapsed: 60 });
+  const restarted = startGame({ ...initial, score: 500, combo: 8, caught: 12, elapsed: WORLD.duration });
   assert.equal(restarted.mode, 'playing');
   assert.equal(restarted.elapsed, 0);
   assert.equal(restarted.score, 0);
@@ -134,11 +138,12 @@ test('a fifth catch grants a combo bonus and records the best streak', () => {
 
 test('resolved boxes cannot score twice and leave after their exit animation', () => {
   const caught = advanceGame(dueDelivery(playing(), 195), 0.02);
-  const next = advanceGame(caught, 0.5);
+  const next = advanceGame(caught, WORLD.departureDuration / 2);
   assert.equal(next.caught, 1);
   assert.equal(next.score, 20);
   assert.deepEqual(next.events, []);
-  const cleared = advanceGame(next, 0.8);
+  assert.equal(next.deliveries.length, 1);
+  const cleared = advanceGame(next, WORLD.departureDuration);
   assert.equal(cleared.deliveries.length, 0);
 });
 
@@ -163,7 +168,7 @@ test('ready and ended rounds do not run, and only playing can be paused', () => 
   assert.deepEqual(advanceGame(ready, 30), ready);
   assert.deepEqual(pauseGame(ready), ready);
   assert.deepEqual(resumeGame(ready), ready);
-  const ended = { ...playing(), mode: 'ended', elapsed: 60 };
+  const ended = { ...playing(), mode: 'ended', elapsed: WORLD.duration };
   assert.deepEqual(advanceGame(ended, 30), ended);
   assert.deepEqual(pauseGame(ended), ended);
   assert.deepEqual(resumeGame(ended), ended);
@@ -177,7 +182,7 @@ test('invalid frame deltas cannot poison or advance the simulation', () => {
 });
 
 test('a catch exactly at the deadline counts before one end event', () => {
-  const state = dueDelivery({ ...playing(), elapsed: 59.99 }, 195);
+  const state = dueDelivery({ ...playing(), elapsed: WORLD.duration - 0.01 }, 195);
   const result = advanceGame(state, 0.1);
   assert.equal(result.elapsed, WORLD.duration);
   assert.equal(result.mode, 'ended');
@@ -187,21 +192,23 @@ test('a catch exactly at the deadline counts before one end event', () => {
   assert.deepEqual(advanceGame(result, 1).events, []);
 });
 
-test('a box due after 60 seconds cannot be scored by an oversize final frame', () => {
-  const state = dueDelivery({ ...playing(), elapsed: 59.99 }, 195, { age: 3.95 });
+test('a box due after the round cannot be scored by an oversize final frame', () => {
+  const state = dueDelivery({ ...playing(), elapsed: WORLD.duration - 0.01 }, 195);
+  state.deliveries[0].age -= 0.04;
+  state.deliveries[0].deadline += 0.04;
   const result = advanceGame(state, 10);
-  assert.equal(result.elapsed, 60);
+  assert.equal(result.elapsed, WORLD.duration);
   assert.equal(result.caught, 0);
   assert.equal(result.score, 0);
   assert.deepEqual(result.events.map(event => event.type), ['ended']);
 });
 
 test('difficulty changes at the agreed boundaries and makes deliveries denser', () => {
-  const stages = [0, 15, 35, 50].map(difficultyAt);
+  const stages = [0, 5, 12, 22].map(difficultyAt);
   assert.deepEqual(stages.map(stage => stage.stage), [0, 1, 2, 3]);
-  assert.equal(difficultyAt(14.999).stage, 0);
-  assert.equal(difficultyAt(34.999).stage, 1);
-  assert.equal(difficultyAt(49.999).stage, 2);
+  assert.equal(difficultyAt(4.999).stage, 0);
+  assert.equal(difficultyAt(11.999).stage, 1);
+  assert.equal(difficultyAt(21.999).stage, 2);
   for (let index = 1; index < stages.length; index += 1) {
     assert.ok(stages[index].interval < stages[index - 1].interval);
     assert.ok(stages[index].lowerDuration < stages[index - 1].lowerDuration);
@@ -211,43 +218,168 @@ test('difficulty changes at the agreed boundaries and makes deliveries denser', 
 test('seeded deliveries are repeatable, use distinct IDs and stay reachable', () => {
   let left = playing(104);
   let right = playing(104);
-  for (let index = 0; index < 100; index += 1) {
+  for (let index = 0; index < 40; index += 1) {
     const previous = left.lastDropX;
-    left = createDelivery({ ...left, elapsed: (index % 4) * 17 });
-    right = createDelivery({ ...right, elapsed: (index % 4) * 17 });
+    const previousDeadline = left.lastDeadline;
+    left = createDelivery({ ...left, elapsed: index * 0.6, deliveries: [] });
+    right = createDelivery({ ...right, elapsed: index * 0.6, deliveries: [] });
     assert.deepEqual(left, right);
     const delivery = left.deliveries.at(-1);
     assert.equal(delivery.id, index + 1);
     assert.ok(delivery.x >= WORLD.minX && delivery.x <= WORLD.maxX);
-    assert.ok(Math.abs(delivery.x - previous) >= 52);
-    assert.ok(Math.abs(delivery.x - previous) / WORLD.speed + 0.25 < difficultyAt(left.elapsed).interval);
-    if (index) assert.notEqual(delivery.hoverY, left.deliveries.at(-2).hoverY);
+    assert.ok(Math.abs(delivery.x - previous) > 0);
+    assert.ok(Math.abs(delivery.x - previous) / WORLD.speed + 0.12 <= delivery.deadline - previousDeadline + 1e-9);
+    assert.equal(delivery.hoverY, DELIVERY_LANES[delivery.lane]);
+    assert.ok(delivery.deadline - previousDeadline >= 0.28 - 1e-9);
   }
 });
 
-test('normal-frame play can catch every order across multiple random rounds', () => {
-  for (const seed of [0, 1, 42, 12345, 0xffffffff]) {
+test('100 seeded 30-second rounds stay fair while reaching four simultaneous orders', () => {
+  assert.equal(WORLD.duration, 30, 'the requested round length is 30 seconds');
+  const telemetry = [];
+  for (let seed = 0; seed < 100; seed += 1) {
     let state = playing(seed);
     let maxUnresolved = 0;
-    let lateOverlap = false;
-    const seen = new Set();
-    for (let frame = 0; state.mode === 'playing' && frame < 3700; frame += 1) {
-      const pending = state.deliveries.find(delivery => !delivery.resolved);
+    let lateMaxUnresolved = 0;
+    let lastDeadline = 0;
+    let lastStage = 0;
+    const seen = new Map();
+    for (let frame = 0; state.mode === 'playing' && frame < WORLD.duration * 60 + 10; frame += 1) {
+      const pending = state.deliveries.filter(delivery => !delivery.resolved).sort((a, b) => a.deadline - b.deadline)[0];
       if (pending) state = setTarget(state, pending.x);
       state = advanceGame(state, 1 / 60);
-      state.deliveries.forEach(delivery => seen.add(delivery.id));
+      const stage = difficultyAt(state.elapsed).stage;
+      assert.ok(stage >= lastStage, `seed ${seed} difficulty must never go backwards`);
+      lastStage = stage;
+      const occupied = new Set();
+      for (const delivery of state.deliveries) {
+        assert.ok(!occupied.has(delivery.lane), `seed ${seed} must never display two drones in one lane`);
+        occupied.add(delivery.lane);
+        assert.equal(delivery.hoverY, DELIVERY_LANES[delivery.lane]);
+        assert.ok(delivery.x >= WORLD.minX && delivery.x <= WORLD.maxX);
+        assert.ok(delivery.deadline <= WORLD.duration - 0.1 + 1e-9);
+        assert.ok(Math.abs(delivery.age - (state.elapsed - delivery.spawnedAt)) < 1e-8);
+        if (!seen.has(delivery.id)) {
+          assert.ok(delivery.deadline >= lastDeadline + 0.28 - 1e-8, `seed ${seed} deadlines must stay ordered and separated`);
+          lastDeadline = delivery.deadline;
+        }
+        seen.set(delivery.id, delivery);
+      }
       const unresolved = state.deliveries.filter(delivery => !delivery.resolved).length;
       maxUnresolved = Math.max(maxUnresolved, unresolved);
-      if (state.elapsed >= 35 && unresolved === 2) lateOverlap = true;
+      if (state.elapsed >= 22) lateMaxUnresolved = Math.max(lateMaxUnresolved, unresolved);
+      assert.ok(unresolved <= WORLD.maxConcurrent, `seed ${seed} may not exceed capacity`);
     }
     assert.equal(state.mode, 'ended', `seed ${seed} must finish`);
     assert.equal(state.missed, 0, `seed ${seed} must be physically completable`);
     assert.equal(state.perfect, state.caught, `seed ${seed} should allow precise alignment`);
     assert.equal(state.caught, seen.size, `seed ${seed} should not leave unfinishable orders`);
-    assert.ok(state.caught >= 15, `seed ${seed} should contain a full round of orders`);
-    assert.ok(maxUnresolved <= 2, 'at most two orders should require attention');
-    assert.ok(lateOverlap, 'the busy phase should have staggered concurrent deliveries');
+    assert.ok(state.deliveries.every(delivery => delivery.resolved), `seed ${seed} may not leave a pending order`);
+    assert.ok(state.caught >= 40, `seed ${seed} should contain a busy 30-second round`);
+    assert.equal(lateMaxUnresolved, 4, 'the final phase must genuinely reach four unresolved orders');
+    telemetry.push({ seed, orders: state.caught, maxUnresolved });
   }
+  console.log('Round telemetry:', JSON.stringify({
+    duration: WORLD.duration,
+    movementSpeed: WORLD.speed,
+    orders: [Math.min(...telemetry.map(round => round.orders)), Math.max(...telemetry.map(round => round.orders))],
+    peakUnresolved: [Math.min(...telemetry.map(round => round.maxUnresolved)), Math.max(...telemetry.map(round => round.maxUnresolved))],
+  }));
+});
+
+test('four occupied lanes refuse a fifth order without consuming randomness or IDs', () => {
+  let state = { ...playing(), elapsed: 22 };
+  for (let index = 0; index < 4; index += 1) state = createDelivery(state);
+  assert.equal(state.deliveries.length, 4);
+  const blocked = createDelivery(state);
+  assert.equal(blocked.deliveries.length, 4);
+  assert.equal(blocked.nextId, state.nextId);
+  assert.equal(blocked.seed, state.seed);
+  assert.ok(blocked.nextDeliveryAt > state.elapsed);
+});
+
+test('20, 30 and 60 fps produce identical order schedules for 100 seeds', () => {
+  function simulate(seed, fps) {
+    let state = playing(seed);
+    const orders = new Map();
+    let peak = 0;
+    for (let frame = 0; state.mode === 'playing' && frame < WORLD.duration * fps + 10; frame += 1) {
+      const pending = state.deliveries.filter(delivery => !delivery.resolved).sort((a, b) => a.deadline - b.deadline)[0];
+      if (pending) state = setTarget(state, pending.x);
+      state = advanceGame(state, 1 / fps);
+      for (const delivery of state.deliveries) {
+        if (!orders.has(delivery.id)) {
+          orders.set(delivery.id, {
+            id: delivery.id, spawnedAt: delivery.spawnedAt, deadline: delivery.deadline,
+            lane: delivery.lane, x: delivery.x,
+          });
+        }
+      }
+      peak = Math.max(peak, state.deliveries.filter(delivery => !delivery.resolved).length);
+    }
+    assert.equal(state.mode, 'ended', `seed ${seed} at ${fps} fps must finish`);
+    assert.equal(state.missed, 0, `seed ${seed} at ${fps} fps must remain catchable`);
+    assert.equal(state.caught, orders.size, `seed ${seed} at ${fps} fps may not leave dead orders`);
+    assert.ok(state.deliveries.every(delivery => delivery.resolved));
+    assert.equal(peak, 4, `seed ${seed} at ${fps} fps must reach four concurrent orders`);
+    return [...orders.values()];
+  }
+
+  for (let seed = 0; seed < 100; seed += 1) {
+    const baseline = simulate(seed, 60);
+    for (const fps of [20, 30]) {
+      const actual = simulate(seed, fps);
+      assert.equal(actual.length, baseline.length, `seed ${seed}: ${fps} fps must not change the number of orders`);
+      actual.forEach((order, index) => {
+        const expected = baseline[index];
+        assert.equal(order.id, expected.id);
+        assert.equal(order.lane, expected.lane, `seed ${seed}, order ${order.id}: lane differs at ${fps} fps`);
+        for (const field of ['spawnedAt', 'deadline', 'x']) {
+          assert.ok(Math.abs(order[field] - expected[field]) < 1e-7,
+            `seed ${seed}, order ${order.id}: ${field} differs at ${fps} fps (${order[field]} vs ${expected[field]})`);
+        }
+      });
+    }
+  }
+});
+
+test('a resolved drone still occupies its lane until it has fully departed', () => {
+  let state = { ...playing(), elapsed: 22 };
+  for (let index = 0; index < 4; index += 1) state = createDelivery(state);
+  const resolvedDeadline = state.elapsed - WORLD.departureDuration / 2;
+  const resolvedLifetime = WORLD.flyDuration + difficultyAt(20).lowerDuration;
+  state = {
+    ...state,
+    deliveries: state.deliveries.map((delivery, index) => index ? delivery : {
+      ...delivery,
+      resolved: true,
+      outcome: 'perfect',
+      deadline: resolvedDeadline,
+      spawnedAt: resolvedDeadline - resolvedLifetime,
+      lowerDuration: resolvedLifetime - WORLD.flyDuration,
+      age: resolvedLifetime + WORLD.departureDuration / 2,
+      resolvedAt: resolvedLifetime,
+    }),
+  };
+  assert.equal(createDelivery(state).nextId, state.nextId);
+  const remainingDeparture = WORLD.departureDuration / 2;
+  state = {
+    ...state,
+    elapsed: state.elapsed + remainingDeparture,
+    deliveries: state.deliveries.map(delivery => ({ ...delivery, age: delivery.age + remainingDeparture })),
+  };
+  const available = createDelivery(state);
+  assert.equal(available.nextId, state.nextId + 1);
+  assert.equal(available.deliveries.at(-1).lane, state.deliveries[0].lane);
+});
+
+test('round-end scheduling stops instead of creating an unfinishable order', () => {
+  const state = { ...playing(), elapsed: WORLD.duration - 0.2 };
+  const result = createDelivery(state);
+  assert.equal(result.nextId, state.nextId);
+  assert.equal(result.seed, state.seed);
+  assert.equal(result.deliveries.length, 0);
+  assert.equal(result.nextDeliveryAt, Infinity);
 });
 
 test('new deliveries do not age during time before their scheduled arrival', () => {
