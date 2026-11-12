@@ -8,6 +8,14 @@
 
 `npm test` 运行测试。部署目录为 `dist/`，可由任意静态服务器托管。
 
+## 部署
+
+线上地址：<https://mizukisheena.github.io/kangaroo-delivery/>，由 GitHub Pages 托管 `gh-pages` 分支。代码迭代后执行以下命令重新发布：
+
+```bash
+git subtree split --prefix dist -b gh-pages && git push -f origin gh-pages
+```
+
 ## 操作
 
 - 手机：在游戏画面下方左右拖动；使用相对移动，按下时不会瞬移。
