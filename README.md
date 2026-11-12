@@ -10,11 +10,7 @@
 
 ## 部署
 
-线上地址：<https://mizukisheena.github.io/kangaroo-delivery/>，由 GitHub Pages 托管 `gh-pages` 分支。代码迭代后执行以下命令重新发布：
-
-```bash
-git subtree split --prefix dist -b gh-pages && git push -f origin gh-pages
-```
+线上地址：<https://mizukisheena.github.io/kangaroo-delivery/>，由 GitHub Pages 托管。推送 `main` 分支后 GitHub Actions 自动发布 `dist/`，无需手动操作。
 
 ## 操作
 
